@@ -1,17 +1,16 @@
 package middleware
 
 import (
-    "log" // Добавляем стандартный логгер
-    "BlessedApi/pkg/logger"
-    "errors"
-    "os"
-    "time"
+	"BlessedApi/pkg/logger"
+	"errors"
+	"log" // Добавляем стандартный логгер
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
-    "github.com/gin-gonic/gin"
-    initdata "github.com/telegram-mini-apps/init-data-golang"
+	"github.com/gin-gonic/gin"
 )
-
 
 const (
 	ContextUserIDKey   = "user_id"
@@ -28,51 +27,6 @@ func init() {
 	}
 }
 
-func ValidateTelegramInitDataMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var initData string
-
-		// Check if it's a WebSocket upgrade request
-		if c.IsWebsocket() {
-			// For WebSocket connections, get init data from query parameter
-			initData = c.Query("init_data")
-		} else {
-			// For regular HTTP requests, get init data from header
-			initData = c.GetHeader("X-Telegram-Init-Data")
-		}
-
-		if initData == "" {
-			c.JSON(400, gin.H{"error": "Missing Telegram init data"})
-			c.Abort()
-			return
-		}
-
-		// Rest of the validation logic
-		err := initdata.Validate(initData, telegramBotToken, InitDataExpiration)
-		if err != nil {
-			c.JSON(400, gin.H{"error": err.Error()})
-			c.Abort()
-			return
-		}
-
-		parsedData, err := initdata.Parse(initData)
-		if err != nil {
-			c.JSON(400, gin.H{"error": "Failed to parse Telegram init data"})
-			c.Abort()
-			return
-		}
-
-		if parsedData.User.ID == 0 {
-			c.JSON(400, gin.H{"error": "User ID is zero"})
-			c.Abort()
-			return
-		}
-
-		c.Set(ContextUserIDKey, parsedData.User.ID)
-		c.Next()
-	}
-}
-
 func GetUserIDFromGinContext(c *gin.Context) (int64, error) {
 	// Get user_id from middleware
 	userIDAny, ok := c.Get(ContextUserIDKey)
@@ -85,8 +39,22 @@ func GetUserIDFromGinContext(c *gin.Context) (int64, error) {
 		return 0, logger.WrapError(errors.New("unable to cast user_id value to int"), "")
 	}
 
-	log.Printf("GetUserIDFromGinContext - checking context keys: %+v", c.Keys);
+	log.Printf("GetUserIDFromGinContext - checking context keys: %+v", c.Keys)
 	logger.Warn(strconv.FormatInt(userIDInt, 10))
 
 	return userIDInt, nil
+}
+
+func GetTokenFromAuthorizationHeader(c *gin.Context) (string, error) {
+	authorizationHeader := c.GetHeader("Authorization")
+	if authorizationHeader == "" {
+		return "", errors.New("authorization header is empty")
+	}
+
+	token := strings.Split(authorizationHeader[:], " ")
+	if len(token) != 2 || token[0] != "Bearer" {
+		return "", errors.New("authorization not Bearer format")
+	}
+
+	return token[1], nil
 }
